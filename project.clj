@@ -28,6 +28,14 @@
   :plugins [[me.arrdem/lein-git-version "2.0.8"]
             [lein-eftest "0.5.7"]]
 
+  :eftest {:multithread? :namespace
+           :thread-count 4
+           :report ~(if (get (System/getenv) "CI")
+                      'eftest.report.junit/report
+                      'eftest.report.progress/report)
+           :report-to-file ~(when (get (System/getenv) "CI")
+                              "target/junit.xml")}
+
   :git-version
   {:status-to-version
    (fn [{:keys [tag version branch ahead ahead? dirty?] :as git}]
@@ -68,7 +76,8 @@
               :dependencies [[io.aviso/logging "0.3.1"]
                              [org.apache.kafka/kafka-streams-test-utils "2.1.0"]
                              [org.apache.kafka/kafka-clients "2.1.0" :classifier "test"]
-                             [org.clojure/test.check "0.9.0"]]}
+                             [org.clojure/test.check "0.9.0"]
+                             [eftest "0.5.7"]]}
 
              :test
              {:resource-paths ["test/resources"]

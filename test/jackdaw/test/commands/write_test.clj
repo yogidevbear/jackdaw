@@ -42,13 +42,7 @@
 (def kafka-config {"bootstrap.servers" "localhost:9092"
                    "group.id" "kafka-write-test"})
 
-(defn with-transport
-  [t f]
-  (try
-    (f t)
-    (finally
-      (doseq [hook (:exit-hooks t)]
-        (hook)))))
+
 
 (defn test-key-defaults []
   (let [opts {}
@@ -131,18 +125,41 @@
   (test-partition-defaults)
   (test-bad-partition))
 
+(defn test-prefix
+  []
+  (-> (str (java.util.UUID/randomUUID))
+      (.substring 0 8)))
+
+(defn with-transport
+  [{:keys [topic-config kafka-config]} f]
+  (let [prefix (test-prefix)
+        topic-config (reduce-kv (fn [m k v]
+                                  (let [v (assoc v :topic-name
+                                                 (str prefix "-" (:topic-name v)))]
+                                    (assoc m k v)))
+                                {}
+                                topic-config)
+        t (trns/transport {:type :kafka
+                           :config kafka-config
+                           :topics topic-config})]
+        (try
+          (f t topic-config)
+          (finally
+            (doseq [hook (:exit-hooks t)]
+              (hook))))))
+
 (deftest test-write!
-  (with-transport (trns/transport {:type :kafka
-                                   :config kafka-config
-                                   :topics {"foo" foo-topic
-                                            "bar" bar-topic}})
-    (fn [t]
+  (with-transport {:topic-config {"foo" foo-topic
+                                  "bar" bar-topic}
+                   :kafka-config kafka-config}
+    (fn [t topics]
       (testing "valid write"
         (let [[cmd & params] [:write! "foo" {:id 1 :payload "yolo"}]
               result (write/handle-write-cmd t cmd params)]
 
           (testing "returns the kafka record metadata"
-            (is (= "foo" (:topic-name result)))
+            (is (= (:topic-name (get topics "foo"))
+                   (:topic-name result)))
             (is (integer? (:offset result)))
             (is (contains? result :partition))
             (is (contains? result :serialized-key-size))
@@ -153,7 +170,8 @@
               result (write/handle-write-cmd t cmd params)]
 
           (testing "returns the kafka record metadata"
-            (is (= "foo" (:topic-name result)))
+            (is (= (:topic-name (get topics "foo"))
+                   (:topic-name result)))
             (is (integer? (:offset result)))
             (is (contains? result :partition))
             (is (contains? result :serialized-key-size))

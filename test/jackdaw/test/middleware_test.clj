@@ -19,8 +19,8 @@
 
     (let [result (f machine)]
       (when test-id
-        (log/info "end" test-id)))))
-
+        (log/info "end" test-id))
+      result)))
 
 (deftest test-with-status
   (with-identity-transport {:test-id "test-with-status"

@@ -15,10 +15,6 @@
 (def kafka-config
   {"bootstrap.servers" "localhost:9092"})
 
-(def test-topics
-  (let [topics {"foo" topic-foo}]
-    (topic-fixture kafka-config topics)))
-
 (defn- topic-exists?
   [client t]
   (contains? (-> (list-topics client)
@@ -27,10 +23,27 @@
                  (set))
              (:topic-name t)))
 
+(defn test-prefix
+  []
+  (-> (str (java.util.UUID/randomUUID))
+      (.substring 0 8)))
+
+(defn with-topic-fixture
+  [{:keys [topic-config]} f]
+  (let [prefix (test-prefix)
+        topic-config (update topic-config
+                             :topic-name #(str prefix "-" %))
+        topic-fix (topic-fixture kafka-config {prefix topic-config}
+                                 {:timeout-ms 1000
+                                  :delete-first? true})]
+    (with-fixtures [topic-fix]
+      (f topic-config))))
+
 (deftest test-topic-fixture
-  (with-fixtures [(topic-fixture kafka-config {"foo" topic-foo})]
-    (with-open [client (AdminClient/create kafka-config)]
-      (is (topic-exists? client topic-foo)))))
+  (with-topic-fixture {:topic-config topic-foo}
+    (fn [topic]
+      (with-open [client (AdminClient/create kafka-config)]
+        (is (topic-exists? client topic))))))
 
 (defmacro with-temp-dirs [dirs & body]
   `(do

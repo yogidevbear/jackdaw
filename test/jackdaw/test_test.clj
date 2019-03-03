@@ -3,6 +3,7 @@
    [clojure.test :refer :all]
    [jackdaw.serdes.avro.schema-registry :as reg]
    [jackdaw.streams :as k]
+   [jackdaw.admin :as admin]
    [jackdaw.test :as jd.test]
    [jackdaw.test.commands :as cmd]
    [jackdaw.test.fixtures :as fix]
@@ -40,10 +41,10 @@
                    "group.id" "kafka-write-test"})
 
 (defn kafka-transport
-  []
+  [topics]
   (trns/transport {:type :kafka
                    :config kafka-config
-                   :topics {"foo" foo-topic}}))
+                   :topics topics}))
 
 (def record-meta-fields [:topic-name
                          :offset
@@ -98,15 +99,38 @@
           (is (= :ok (:status (first results))))
           (is (= :error (:status (second results)))))))))
 
+(defn test-prefix
+  []
+  (-> (str (java.util.UUID/randomUUID))
+      (.substring 0 8)))
+
+(defn with-topic-machine
+  [{:keys [kafka-config topic-config]} f]
+  (let [prefix (test-prefix)
+        topic-config (reduce-kv (fn [m k v]
+                                  (let [v (assoc v :topic-name
+                                                 (str prefix "-" (:topic-name v)))]
+                                    (assoc m k v)))
+                                {}
+                                topic-config)
+        fix (fix/topic-fixture kafka-config topic-config)]
+    (fix/with-fixtures [fix]
+      (try
+        (with-open [machine (jd.test/test-machine (kafka-transport topic-config))]
+          (f topic-config machine))
+        (finally
+          (with-open [admin (admin/->AdminClient kafka-config)]
+            (admin/delete-topics! admin (vals topic-config))))))))
+
 (deftest test-write-then-watch
   (testing "write then watch"
-    (fix/with-fixtures [(fix/topic-fixture kafka-config {"foo" foo-topic})]
-      (with-open [t (jd.test/test-machine (kafka-transport))]
+    (with-topic-machine {:kafka-config kafka-config
+                         :topic-config {"foo" foo-topic}}
+      (fn [topic machine]
         (let [write [:write! "foo" {:id "msg1" :payload "yolo"}]
               watch [:watch (by-id "foo" "msg1")
                      {:info "failed to find foo with id=msg1"}]
-
-              {:keys [results journal]} (jd.test/run-test t [write watch])
+              {:keys [results journal]} (jd.test/run-test machine [write watch])
               [write-result watch-result] results]
 
           (testing "write result"
@@ -124,8 +148,9 @@
                        :value)))))))))
 
 (deftest test-reuse-machine
-  (fix/with-fixtures [(fix/topic-fixture kafka-config {"foo" foo-topic})]
-    (with-open [t (jd.test/test-machine (kafka-transport))]
+  (with-topic-machine {:kafka-config kafka-config
+                       :topic-config {"foo" foo-topic}}
+    (fn [topic machine]
       (let [prog1 [[:write! "foo" {:id "msg2" :payload "yolo"}]
                    [:watch (by-id "foo" "msg2")
                     {:info "failed to find foo with id=msg2"}]]
@@ -135,14 +160,14 @@
                     {:info "failed to find foo with id=msg3"}]]]
 
         (testing "run test sequence and inspect results"
-          (let [{:keys [results journal]} (jd.test/run-test t prog1)]
+          (let [{:keys [results journal]} (jd.test/run-test machine prog1)]
             (is (every? #(= :ok (:status %)) results))
             (is (= {:id "msg2" :payload "yolo"}
                    (-> ((by-id "foo" "msg2") journal)
                        :value)))))
 
         (testing "run another test sequence and inspect results"
-          (let [{:keys [results journal]} (jd.test/run-test t prog2)]
+          (let [{:keys [results journal]} (jd.test/run-test machine prog2)]
             (is (every? #(= :ok (:status %)) results))
 
             (testing "old results remain in the journal"
