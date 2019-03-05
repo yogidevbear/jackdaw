@@ -32,16 +32,11 @@
 
 (defn streams-builder->test-driver
   ""
-  ([streams-builder]
-   (streams-builder->test-driver streams-builder
-                                 {"application.id" (str (java.util.UUID/randomUUID)))
-                                  "bootstrap.servers" "fake"})
-  ([streams-builder config]
-   (let [topology (-> streams-builder config ::streams-builder .build)]
+  ([builder app-config]
+   (let [topology (-> builder config ::streams-builder .build)]
      (TopologyTestDriver.
       topology
-      (props-for config)))))
-
+      (props-for app-config)))))
 
 (defn send
   "Publishes message to a topic."
@@ -107,10 +102,14 @@
   [test-driver topic-config]
   (take-while some? (repeatedly (partial consume test-driver topic-config))))
 
-(defn build-driver [f]
-  (let [builder (streams-builder)]
-    (f builder)
-    (streams-builder->test-driver builder)))
+(defn build-driver
+  ([f app-config]
+   (let [builder (streams-builder)]
+     (f builder)
+     (streams-builder->test-driver builder app-config)))
+  ([f]
+   (build-driver f {"application.id" (str (java.util.UUID/randomUUID))
+                    "bootstrap.servers" "fake"})))
 
 ;; FIXME (arrdem 2018-11-24):
 ;;   This is used by the test suite but has no bearing on anything else
