@@ -23,17 +23,25 @@
     {::streams-builder (k/streams-builder* streams-builder)}
     streams-builder)))
 
+(defn props-for [x]
+  (doto (Properties.)
+    (.putAll (reduce-kv (fn [m k v]
+                          (assoc m (str k) (str v)))
+                        {}
+                        x))))
+
 (defn streams-builder->test-driver
   ""
-  [streams-builder]
-  (let [topology (-> streams-builder config ::streams-builder .build)]
-    (TopologyTestDriver.
-     topology
-     (doto (Properties.)
-       (.put "application.id"      (str (java.util.UUID/randomUUID)))
-       (.put "bootstrap.servers"   "fake")
-       (.put "default.key.serde"   "jackdaw.serdes.EdnSerde")
-       (.put "default.value.serde" "jackdaw.serdes.EdnSerde")))))
+  ([streams-builder]
+   (streams-builder->test-driver streams-builder
+                                 {"application.id" (str (java.util.UUID/randomUUID)))
+                                  "bootstrap.servers" "fake"})
+  ([streams-builder config]
+   (let [topology (-> streams-builder config ::streams-builder .build)]
+     (TopologyTestDriver.
+      topology
+      (props-for config)))))
+
 
 (defn send
   "Publishes message to a topic."
