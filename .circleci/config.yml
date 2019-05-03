@@ -92,6 +92,7 @@ jobs:
       #  https://help.github.com/en/articles/githubs-ssh-key-fingerprints
       #
       - run: |
+          touch ~/.ssh/known_hosts
           .circleci/bin/add-key github.com $GITHUB_SSH_FINGERPRINT
           git fetch --force origin "refs/tags/${CIRCLE_TAG}:refs/tags/${CIRCLE_TAG}"
       - checkout
