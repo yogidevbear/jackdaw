@@ -299,6 +299,73 @@
         (reset! error-raised e)))
     (is @error-raised)))
 
+(defn upperkase
+  "Uppercase the payloads. At peta-scale!!"
+  [in out]
+  (fn [builder]
+    (let [in (-> (k/kstream builder in)
+                 (k/map (fn [[k v]]
+                          [k (update v :payload #(.toUpperCase %))])))]
+      (k/to in out)
+      builder)))
+
+(defn exklaim!
+  "Append exclamation marks to the payload"
+  [in out]
+  (fn [builder]
+    (let [in (-> (k/kstream builder in)
+                 (k/map (fn [[k v]]
+                          [k (update v :payload #(str % "!!!"))])))]
+      (k/to in out)
+      builder)))
+
+(deftest test-topology-composition
+  (let [test-upperkased (serde/resolver {:topic-name "OUT"
+                                         :key-serde :string
+                                         :value-serde :json})
+        test-exclaimed (serde/resolver {:topic-name "OUT!!!"
+                                        :key-serde :string
+                                        :value-serde :json})
+
+        multi-topology (comp (upperkase test-in test-upperkased)
+                             (exklaim! test-in test-exclaimed))
+        error-raised (atom nil)]
+    (try
+      (jd.test/with-test-machine (trns/transport {:type :mock
+                                                  :driver (jd.test/mock-test-driver multi-topology
+                                                                                    {"bootstrap.servers" "localhost:9092"
+                                                                                     "application.id" "test-echo-stream"})
+                                                  :topics {:in test-in
+                                                           :out-1 test-upperkased
+                                                           :out-2 test-exclaimed}})
+        (fn [machine]
+          (let [{:keys [results journal]} (jd.test/run-test machine
+                                                            [[:write! :in {:id "1" :payload "foo"} {:key-fn :id}]
+                                                             [:write! :in {:id "2" :payload "bar"} {:key-fn :id}]
+                                                             [:watch (fn [journal]
+                                                                       (when (and (->> (get-in journal [:topics :out-1])
+                                                                                       (filter (fn [r]
+                                                                                                 (= (get-in r [:value :id]) "2")))
+                                                                                       (not-empty))
+                                                                                  (->> (get-in journal [:topics :out-2])
+                                                                                       (filter (fn [r]
+                                                                                                 (= (get-in r [:value :id]) "2")))
+                                                                                       (not-empty)))
+
+                                                                         true)) {:timeout 2000}]])]
+            (is (every? #(= :ok (:status %)) results))
+            (is (= ["FOO" "BAR"]
+                   (->> (get-in journal [:topics :out-1])
+                        (map #(get-in % [:value :payload])))))
+            (is (= ["foo!!!" "bar!!!"]
+                   (->> (get-in journal [:topics :out-2])
+                        (map #(get-in % [:value :payload]))))))))
+      (catch Exception e
+        (reset! error-raised e)))
+
+    (is (not @error-raised))))
+
+
 
 (deftest test-transports-loaded
   (let [transports (trns/supported-transports)]
