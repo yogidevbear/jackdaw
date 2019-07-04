@@ -164,7 +164,8 @@
       (if (:error response)
         (do (log/infof "rest-proxy subscription error: %s" (:error response))
             (assoc client :error response))
-        (assoc client :subscription topics)))))
+        (do (log/info "rest-proxy subscription started")
+            (assoc client :subscription topics))))))
 
 (defn rest-proxy-poller
   "Returns a function that takes a consumer and puts any messages retrieved
@@ -179,6 +180,7 @@
         (when (:error response)
           (log/errorf "rest-proxy fetch error: %s" (:error response)))
         (when-not (:error response)
+          (log/info "got rest-proxy poll response")
           (s/put-all! messages (:json-body response)))))))
 
 (defn rest-proxy-subscription
